@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Thunder Tactics 3D (offline-ready, no-assets)</title>
+
+<!-- Three.js & OrbitControls από CDN (μπορείς να τα κάνεις local αργότερα) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r150/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r150/examples/js/controls/OrbitControls.min.js"></script>
+
+<style>
+  :root{
+    --bg1:#0f172a; --bg2:#1e293b; --prim:#f59e0b; --blue:#3b82f6; --ok:#22c55e; --mut:#64748b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:radial-gradient(1200px 800px at 50% 0%,#111827 0%,var(--bg1) 50%,#000 100%);color:#fff;overflow:hidden}
+
+  #game-container{position:fixed;inset:0}
+
+  /* Loading */
+  #loading{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;
+    background:linear-gradient(45deg,var(--bg1),var(--bg2));z-index:50
+  }
+  .spinner{width:84px;height:84px;border-radius:50%;border:8px solid #0005;border-top-color:var(--prim);animation:spin 1s linear infinite;margin-bottom:16px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loading p{opacity:.9;color:var(--prim)}
+
+  /* Main menu */
+  #menu{
+    position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+    background:linear-gradient(45deg,var(--bg1),var(--bg2));z-index:40
+  }
+  .title{font-size:34px;letter-spacing:1px;color:var(--prim);text-shadow:0 0 24px #000}
+  .btn{
+    padding:14px 22px;border:none;border-radius:12px;background:linear-gradient(45deg,#1e40af,var(--blue));
+    color:#fff;font-weight:700;cursor:pointer;box-shadow:0 6px 20px #3b82f633;transition:.18s transform,.18s box-shadow
+  }
+  .btn:hover{transform:translateY(-2px);box-shadow:0 10px 26px #3b82f666}
+
+  /* Briefing */
+  #brief{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:45;
+    width:min(90vw,520px);background:#0b1220ee;border:2px solid var(--prim);border-radius:16px;padding:18px;display:none
+  }
+  #brief h2{color:var(--prim);margin-bottom:10px}
+  #brief p{opacity:.9;margin:.4rem 0}
+  #brief .reward{margin-top:8px;color:var(--prim);font-weight:700}
+  #brief .btn{width:100%;margin-top:12px;background:linear-gradient(45deg,#dc2626,var(--prim))}
+
+  /* HUD */
+  #hud{position:fixed;left:16px;top:16px;z-index:20;background:#0b1220cc;border:1px solid var(--prim);
+       border-radius:12px;padding:12px;min-width:220px;backdrop-filter:blur(6px)}
+  #hud h3{font-size:16px;margin-bottom:4px}
+  .row{display:flex;align-items:center;gap:8px;margin:6px 0}
+  .bar{flex:1;height:8px;background:#111;border-radius:4px;overflow:hidden}
+  .fill{height:100%;background:linear-gradient(90deg,#ef4444,var(--ok));width:100%}
+
+  #turn{position:fixed;right:16px;top:16px;z-index:20;background:#0b1220cc;border:1px solid #60a5fa;
+        border-radius:12px;padding:10px 14px}
+  #ui{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:20;display:flex;gap:10px;background:#0b1220cc;
+      border:1px solid var(--prim);border-radius:16px;padding:8px 10px}
+  .ac{width:56px;height:56px;border-radius:50%;border:none;color:#fff;font-size:22px;cursor:pointer;
+      background:linear-gradient(45deg,#1e40af,var(--blue));display:grid;place-items:center}
+  .ac:disabled{opacity:.45;cursor:not-allowed;filter:grayscale(.2)}
+  .note{position:fixed;left:50%;transform:translateX(-50%);bottom:86px;font-size:12px;opacity:.9}
+
+  /* subtle hint */
+  #hint{position:fixed;left:12px;bottom:12px;font-size:12px;opacity:.6}
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <p>Φόρτωση μηχανής 3D…</p>
+</div>
+
+<div id="menu" style="display:none">
+  <div class="title">THUNDER TACTICS 3D</div>
+  <button class="btn" id="new">Νέο Παιχνίδι</button>
+  <button class="btn" id="how">Οδηγίες</button>
+</div>
+
+<div id="brief">
+  <h2>Αποστολή: Άμυνα Βάσης</h2>
+  <p>Οι εισβολείς εντοπίστηκαν στο βορειοανατολικό τεταρτημόριο. Κράτα τη βάση ασφαλή για 5 γύρους.</p>
+  <p>Κάθε μονάδα έχει <b>2 Πόντους Δράσης</b>: κίνηση σε πλέγμα & επίθεση σώμα-με-σώμα.</p>
+  <div class="reward">Ανταμοιβή: +10% Ζωή στον επόμενο χάρτη</div>
+  <button class="btn" id="start">Έναρξη</button>
+</div>
+
+<!-- HUD -->
+<div id="hud" style="display:none">
+  <h3 id="h-name">—</h3>
+  <div class="row">Υγεία:
+    <div class="bar"><div class="fill" id="h-hp"></div></div>
+    <span id="h-hp-val">100/100</span>
+  </div>
+  <div class="row">AP: <b id="h-ap">2</b></div>
+</div>
+
+<div id="turn" style="display:none">Γύρος Παίκτη</div>
+
+<div id="ui" style="display:none">
+  <button class="ac" id="move" title="Κίνηση">↑</button>
+  <button class="ac" id="attack" title="Επίθεση">⚔️</button>
+  <button class="ac" id="end" title="Τέλος Γύρου">✓</button>
+</div>
+<div class="note" id="note" style="display:none">Tip: Πάτησε σε μονάδα για επιλογή. Drag για περιστροφή κάμερας.</div>
+
+<div id="hint">Offline, χωρίς assets • Ήχοι με WebAudio • Διαδικαστικά γραφικά</div>
+
+<div id="game-container"></div>
+
+<script>
+/* ====== ΠΑΡΑΓΩΓΗ ΗΧΩΝ με WebAudio (χωρίς αρχεία) ====== */
+const AudioFX = (() => {
+  const ctx = (window.AudioContext || window.webkitAudioContext) ? new (window.AudioContext||window.webkitAudioContext)() : null;
+  const vol = ctx ? ctx.createGain() : null;
+  if (vol) { vol.gain.value = 0.25; vol.connect(ctx.destination); }
+
+  function beep(type='sine',freq=440,ms=120){
+    if(!ctx) return;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.value = .001; g.gain.exponentialRampToValueAtTime(.2, ctx.currentTime+.02);
+    g.gain.exponentialRampToValueAtTime(.0001, ctx.currentTime + ms/1000);
+    o.connect(g); g.connect(vol); o.start(); o.stop(ctx.currentTime+ms/1000);
+  }
+  return {
+    click: ()=>beep('square', 740, 80),
+    move:  ()=>beep('triangle', 420, 120),
+    hit:   ()=>{beep('square', 180, 90); setTimeout(()=>beep('square',120,120),70)},
+    win:   ()=>{ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep('sine',f,140),i*160)) },
+    lose:  ()=>{ [440,392,330].forEach((f,i)=>setTimeout(()=>beep('sawtooth',f,160),i*180)) },
+    music: ()=>{
+      if(!ctx) return;
+      const tempo=96, steps=[0,4,7,12,7,4,0,4], base=261.63; // C chord arpeggio
+      let t = 0;
+      const id = setInterval(()=>{
+        const n = steps[t%steps.length];
+        beep('sine', base*Math.pow(2,n/12), 140);
+        t++;
+      }, 60000/tempo);
+      return ()=>clearInterval(id);
+    }
+  }
+})();
+
+/* ====== ΚΑΤΑΣΤΑΣΗ ΠΑΙΧΝΙΔΙΟΥ ====== */
+const S = {
+  scene:null, renderer:null, camera:null, controls:null,
+  gridSize: 18, cell: 2,
+  grid: [], characters: [], selected:null,
+  isPlayerTurn:true, round:1,
+  musicStop:null
+};
+
+/* ====== ΑΡΧΙΚΟΠΟΙΗΣΗ ====== */
+function init(){
+  const cont = document.getElementById('game-container');
+  S.scene = new THREE.Scene();
+  S.scene.background = new THREE.Color(0x0f172a);
+
+  S.camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, .1, 1000);
+  S.camera.position.set(18, 26, 18);
+  S.camera.lookAt(0,0,0);
+
+  S.renderer = new THREE.WebGLRenderer({antialias:true});
+  S.renderer.setSize(innerWidth, innerHeight);
+  S.renderer.shadowMap.enabled = true;
+  cont.appendChild(S.renderer.domElement);
+
+  S.controls = new THREE.OrbitControls(S.camera, S.renderer.domElement);
+  S.controls.enableDamping = true;
+
+  addLights();
+  buildGround();
+  buildEnvironment();
+  buildGrid();
+  spawnTeams();
+
+  // UI
+  setupUI();
+
+  // Events
+  window.addEventListener('resize', onResize);
+  S.renderer.domElement.addEventListener('click', onClick3D);
+
+  // Loop
+  animate();
+
+  // Music loop
+  S.musicStop = AudioFX.music?.();
+}
+
+function addLights(){
+  S.scene.add(new THREE.AmbientLight(0xffffff, .55));
+  const sun = new THREE.DirectionalLight(0xffffff,.9);
+  sun.position.set(20,30,12);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024,1024);
+  S.scene.add(sun);
+
+  const glow = new THREE.PointLight(0x60a5fa,.6,40);
+  glow.position.set(0,8,0);
+  S.scene.add(glow);
+}
+
+function buildGround(){
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(S.gridSize*S.cell+10, S.gridSize*S.cell+10),
+    new THREE.MeshStandardMaterial({color:0x1e293b, metalness:.1, roughness:.9})
+  );
+  plane.rotation.x = -Math.PI/2; plane.receiveShadow = true;
+  S.scene.add(plane);
+}
+
+function buildEnvironment(){
+  // Rocks
+  const rockMat = new THREE.MeshStandardMaterial({color:0x475569, roughness:.95, metalness:.05});
+  for(let i=0;i<16;i++){
+    const g = new THREE.DodecahedronGeometry(.8+Math.random()*1.6);
+    const m = new THREE.Mesh(g, rockMat);
+    m.position.set((Math.random()-.5)*S.gridSize*S.cell, .2, (Math.random()-.5)*S.gridSize*S.cell);
+    m.castShadow = true; m.receiveShadow = true;
+    S.scene.add(m);
+  }
+  // Crystals (cover)
+  const cryMat = new THREE.MeshStandardMaterial({color:0x60a5fa, emissive:0x1e40af, emissiveIntensity:.35, transparent:true, opacity:.85});
+  for(let i=0;i<22;i++){
+    const g = new THREE.ConeGeometry(.7+Math.random()*.4, 1.8+Math.random()*1.2, 5);
+    const m = new THREE.Mesh(g, cryMat);
+    const gx = Math.round((Math.random()*(S.gridSize-2))+1), gz = Math.round((Math.random()*(S.gridSize-2))+1);
+    m.position.set((gx - S.gridSize/2)*S.cell, .9, (gz - S.gridSize/2)*S.cell);
+    m.castShadow = true;
+    S.scene.add(m);
+  }
+}
+
+function buildGrid(){
+  const helper = new THREE.GridHelper(S.gridSize*S.cell, S.gridSize, 0x2dd4bf, 0x334155);
+  helper.position.y = .05;
+  S.scene.add(helper);
+
+  for(let z=0;z<S.gridSize;z++){
+    S.grid[z]=[];
+    for(let x=0;x<S.gridSize;x++) S.grid[z][x]=null;
+  }
+}
+
+function spawnTeams(){
+  const mkChar = (name,x,z,color,isPlayer) => {
+    const geo = new THREE.CapsuleGeometry(.5,1.3,6,12);
+    const mat = new THREE.MeshStandardMaterial({color, metalness:.25, roughness:.75});
+    const mesh = new THREE.Mesh(geo,mat);
+    mesh.castShadow = true;
+    mesh.position.set((x-S.gridSize/2)*S.cell, 1.4, (z-S.gridSize/2)*S.cell);
+
+    // highlight ring
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(.62,.82,18),
+      new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.55,side:THREE.DoubleSide})
+    );
+    ring.rotation.x = -Math.PI/2; ring.position.y = -1.2; ring.visible=false;
+    mesh.add(ring);
+
+    S.scene.add(mesh);
+    const c = {name, mesh, ring, gx:x, gz:z, hp:100, maxhp:100, ap:isPlayer?2:1, maxap:isPlayer?2:1, atk:26, range:2, move:4, isPlayer};
+    S.characters.push(c);
+    S.grid[z][x]=c;
+  };
+
+  // Player squad
+  mkChar('Alpha', 4,4, 0xffaa00, true);
+  mkChar('Vega', 6,4, 0x3b82f6, true);
+  mkChar('Nova', 5,6, 0x7e22ce, true);
+
+  // Enemies
+  mkChar('Drone', S.gridSize-4, S.gridSize-4, 0x22c55e, false);
+  mkChar('Drone', S.gridSize-5, S.gridSize-4, 0x22c55e, false);
+  mkChar('Warlord', S.gridSize-6, S.gridSize-5, 0x94a3b8, false);
+}
+
+/* ====== UI ====== */
+function setupUI(){
+  const $ = s=>document.querySelector(s);
+  $('#loading').style.display='none';
+  $('#menu').style.display='flex';
+
+  $('#new').onclick = ()=>{
+    document.getElementById('menu').style.display='none';
+    document.getElementById('brief').style.display='block';
+    AudioFX.click();
+  };
+  document.getElementById('how').onclick=()=>{
+    alert('Κινήσεις σε πλέγμα, 2 AP/γύρο. Επίθεση σώμα-με-σώμα. Τέλος γύρου για ΑΙ εχθρού.');
+  };
+  document.getElementById('start').onclick=()=>{
+    document.getElementById('brief').style.display='none';
+    document.getElementById('hud').style.display='block';
+    document.getElementById('turn').style.display='block';
+    document.getElementById('ui').style.display='flex';
+    document.getElementById('note').style.display='block';
+    AudioFX.click();
+    updateHUD();
+  };
+
+  document.getElementById('move').onclick = ()=> modeMove();
+  document.getElementById('attack').onclick = ()=> modeAttack();
+  document.getElementById('end').onclick = ()=> endTurn();
+}
+
+/* ====== ΕΠΙΛΟΓΗ / ΚΙΝΗΣΗ / ΕΠΙΘΕΣΗ ====== */
+function onClick3D(e){
+  if(!S.isPlayerTurn) return;
+
+  const mouse = new THREE.Vector2(
+    (e.clientX / innerWidth) * 2 - 1,
+    -(e.clientY / innerHeight) * 2 + 1
+  );
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(mouse, S.camera);
+
+  // 1) Χτύπημα μονάδας
+  const meshes = S.characters.map(c=>c.mesh);
+  const hit = ray.intersectObjects(meshes, true)[0];
+  if(hit){
+    const c = S.characters.find(cc => (cc.mesh===hit.object) || cc.mesh.children.includes(hit.object));
+    if(c && c.isPlayer && c.ap>0){
+      select(c);
+      AudioFX.click();
+      return;
+    }
+  }
+}
+
+function select(c){
+  if(S.selected) S.selected.ring.visible=false;
+  S.selected=c;
+  c.ring.visible=true;
+  updateHUD();
+}
+
+function updateHUD(){
+  const c = S.selected || S.characters.find(x=>x.isPlayer) || {name:'—',hp:0,maxhp:100,ap:0};
+  document.getElementById('h-name').textContent=c.name+(c.isPlayer?' (Σύμμαχος)':' (Εχθρός)');
+  document.getElementById('h-hp').style.width = ((c.hp/c.maxhp)*100)+'%';
+  document.getElementById('h-hp-val').textContent = `${c.hp}/${c.maxhp}`;
+  document.getElementById('h-ap').textContent = c.ap;
+  document.getElementById('move').disabled = !S.selected || S.selected.ap<1;
+  document.getElementById('attack').disabled = !S.selected || S.selected.ap<1;
+}
+
+function modeMove(){
+  if(!S.selected || S.selected.ap<1) return;
+  // απλή «έλξη» προς το κοντινότερο άδειο κελί μέσα στο range, με κλικ στη μονάδα (demo)
+  const c=S.selected;
+  const targets = neighborCells(c.gx,c.gz,c.move).filter(p=>!S.grid[p.z]?.[p.x]);
+  if(!targets.length){ alert('Δεν υπάρχει διαθέσιμο κελί κίνησης.'); return; }
+  const p = targets[Math.floor(Math.random()*targets.length)];
+  moveChar(c,p.x,p.z);
+  c.ap--;
+  AudioFX.move();
+  updateHUD();
+}
+
+function modeAttack(){
+  if(!S.selected || S.selected.ap<1) return;
+  const c=S.selected;
+  const foes = S.characters.filter(x=>!x.isPlayer);
+  // βρες αντίπαλο σε range (μανχάταν απόσταση στο πλέγμα)
+  const inRange = foes.find(f=>dist(c.gx,c.gz,f.gx,f.gz)<=c.range);
+  if(!inRange){ alert('Κανένας εχθρός σε εμβέλεια.'); return; }
+  inRange.hp = Math.max(0, inRange.hp - c.atk);
+  shake(inRange.mesh, .06, 160);
+  AudioFX.hit();
+  if(inRange.hp===0){
+    // αφαίρεση
+    S.scene.remove(inRange.mesh);
+    S.grid[inRange.gz][inRange.gx]=null;
+    S.characters = S.characters.filter(k=>k!==inRange);
+  }
+  c.ap--;
+  updateHUD();
+  checkWinLose();
+}
+
+function moveChar(c,x,z){
+  S.grid[c.gz][c.gx]=null;
+  c.gx=x; c.gz=z;
+  c.mesh.position.set((x-S.gridSize/2)*S.cell, c.mesh.position.y, (z-S.gridSize/2)*S.cell);
+  S.grid[z][x]=c;
+}
+
+function neighborCells(x,z,range){
+  const cells=[];
+  for(let dz=-range;dz<=range;dz++){
+    for(let dx=-range;dx<=range;dx++){
+      if(Math.abs(dx)+Math.abs(dz) <= range){
+        const nx=x+dx, nz=z+dz;
+        if(nx>=0 && nz>=0 && nx<S.gridSize && nz<S.gridSize) cells.push({x:nx,z:nz});
+      }
+    }
+  }
+  return cells;
+}
+function dist(x1,z1,x2,z2){ return Math.abs(x1-x2)+Math.abs(z1-z2); }
+
+function endTurn(){
+  if(!S.isPlayerTurn) return;
+  S.isPlayerTurn=false;
+  document.getElementById('turn').textContent='Γύρος Εχθρού';
+  // Απλό AI: αν σε range -> επίθεση, αλλιώς κίνηση προς τον κοντινότερο σύμμαχο
+  setTimeout(enemyTurn, 320);
+}
+
+function enemyTurn(){
+  const enemies = S.characters.filter(c=>!c.isPlayer);
+  const allies  = S.characters.filter(c=>c.isPlayer);
+  for(const e of enemies){
+    e.ap = e.maxap;
+    while(e.ap>0 && allies.length){
+      // στόχος: ο κοντινότερος σύμμαχος
+      const tgt = allies.slice().sort((a,b)=>dist(e.gx,e.gz,a.gx,a.gz)-dist(e.gx,e.gz,b.gx,b.gz))[0];
+      const d = dist(e.gx,e.gz,tgt.gx,tgt.gz);
+      if(d<=e.range){
+        // επίθεση
+        tgt.hp = Math.max(0, tgt.hp - e.atk*0.8|0);
+        shake(tgt.mesh, .06, 160);
+        AudioFX.hit();
+        if(tgt.hp===0){
+          S.scene.remove(tgt.mesh);
+          S.grid[tgt.gz][tgt.gx]=null;
+          const idx = S.characters.indexOf(tgt);
+          if(idx>-1){ S.characters.splice(idx,1); allies.splice(allies.indexOf(tgt),1); }
+        }
+        e.ap--;
+      }else{
+        // κίνηση 1 κελί πιο κοντά
+        const dx = Math.sign(tgt.gx - e.gx);
+        const dz = Math.sign(tgt.gz - e.gz);
+        const cand = [
+          {x:e.gx+dx, z:e.gz}, {x:e.gx, z:e.gz+dz},
+          {x:e.gx+dx, z:e.gz+dz}
+        ].filter(p=>p.x>=0 && p.z>=0 && p.x<S.gridSize && p.z<S.gridSize && !S.grid[p.z][p.x]);
+        if(cand.length){
+          const p = cand[0];
+          moveChar(e,p.x,p.z);
+        }
+        e.ap--;
+      }
+    }
+  }
+
+  // Επιστροφή στον παίκτη
+  S.isPlayerTurn=true;
+  document.getElementById('turn').textContent='Γύρος Παίκτη';
+  // ανανέωση AP για τους συμμάχους
+  S.characters.filter(c=>c.isPlayer).forEach(c=>c.ap=c.maxap);
+  if(S.selected && S.selected.hp===0) S.selected=null;
+  updateHUD();
+  checkWinLose();
+}
+
+/* ====== ΕΦΦΕΚΤ — τρεμούλα στόχου στην επίθεση ====== */
+function shake(obj, amp=0.05, ms=120){
+  const start = performance.now();
+  const base = obj.position.clone();
+  const tick = (t)=>{
+    const k = t - start;
+    if(k>ms){ obj.position.copy(base); return; }
+    obj.position.x = base.x + (Math.random()*2-1)*amp;
+    obj.position.z = base.z + (Math.random()*2-1)*amp;
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+/* ====== LOOP ====== */
+function onResize(){
+  S.camera.aspect = innerWidth/innerHeight; S.camera.updateProjectionMatrix();
+  S.renderer.setSize(innerWidth, innerHeight);
+}
+function animate(){
+  requestAnimationFrame(animate);
+  // μικρό bobbing στις μονάδες
+  const t = performance.now()/1000;
+  S.characters.forEach((c,i)=>{ c.mesh.position.y = 1.4 + Math.sin(t + i)*0.08; });
+  S.controls.update();
+  S.renderer.render(S.scene, S.camera);
+}
+
+/* ====== ΞΕΚΙΝΗΜΑ ====== */
+window.addEventListener('load', ()=>{
+  // Μικρό fake-loading για ομαλή μετάβαση
+  setTimeout(()=>{
+    init();
+    document.getElementById('menu').style.display='flex';
+  }, 600);
+});
+</script>
+</body>
+</html>
